@@ -1,6 +1,11 @@
 # VHDVomit
 Tool to search SMB shares for VHD backup files, mount them, and dump locally stored credentials within. 
+___
+## Demo: 
+<video src="https://github.com/user-attachments/assets/868660dd-9532-4e81-9824-ac8452f36384" controls width="600">
+</video>
 
+---
 ## Usage:
 ```python
 sudo python3 vhdvomit.py --help                                
