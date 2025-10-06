@@ -63,10 +63,18 @@ def decode_smb_field(val):
         return ""
     return str(val).strip('\x00').strip()
 
-def list_smb_shares(host: str, user: str, password: str, domain: str):
+def list_smb_shares(host: str, user: str, password: str, domain: str, nthash: str = '', use_kerberos: bool = False):
     try:
         conn = SMBConnection(host, host, sess_port=445)
-        conn.login(user, password, domain)
+        
+        if use_kerberos:
+            conn.kerberosLogin(user, password, domain, '', '', '')
+        elif nthash:
+            lmhash = 'aad3b435b51404eeaad3b435b51404ee'
+            conn.login(user, '', domain, lmhash=lmhash, nthash=nthash)
+        else:
+            conn.login(user, password, domain)
+        
         shares = conn.listShares()
         
         result = []
@@ -116,7 +124,7 @@ def select_shares(shares):
         
         print("[!] Invalid selection")
 
-def create_cifs_creds(domain: str, user: str, password: str):
+def create_cifs_creds(domain: str, user: str, password: str, nthash: str = ''):
     fd, path = tempfile.mkstemp(prefix="cifs_", suffix=".creds")
     os.close(fd)
     
@@ -125,7 +133,9 @@ def create_cifs_creds(domain: str, user: str, password: str):
             f.write(f"domain={domain}\n")
         if user:
             f.write(f"username={user}\n")
-        if password:
+        if nthash:
+            f.write(f"password=00000000000000000000000000000000:{nthash}\n")
+        elif password:
             f.write(f"password={password}\n")
     
     os.chmod(path, 0o600)
@@ -142,7 +152,7 @@ def force_umount(path: str):
     subprocess.run(['umount', path], capture_output=True)
     subprocess.run(['umount', '-l', path], capture_output=True)
 
-def mount_cifs_share(host: str, share: str, creds_file: str):
+def mount_cifs_share(host: str, share: str, creds_file: str, use_kerberos: bool = False):
     mnt = Path('/mnt') / share
     mnt.mkdir(parents=True, exist_ok=True)
     
@@ -156,7 +166,11 @@ def mount_cifs_share(host: str, share: str, creds_file: str):
             return None
     
     unc = f"//{host}/{share}"
-    opts = f"credentials={creds_file},vers=3.0,iocharset=utf8"
+    
+    if use_kerberos:
+        opts = f"credentials={creds_file},vers=3.0,sec=krb5,iocharset=utf8"
+    else:
+        opts = f"credentials={creds_file},vers=3.0,iocharset=utf8"
     
     cmd = ['mount', '-t', 'cifs', unc, str(mnt), '-o', opts]
     
@@ -473,14 +487,22 @@ Examples:
   Null authentication:
     %(prog)s -t 192.168.1.10
   
-  With credentials:
+  With password:
     %(prog)s -t 192.168.1.10 -u administrator -p Password123 -d CORP
+  
+  Pass-the-hash:
+    %(prog)s -t 192.168.1.10 -u administrator -H e19ccf75ee54e06b06a5907af13cef42 -d CORP
+  
+  Kerberos:
+    %(prog)s -t dc01.corp.local -u administrator -d CORP -k
         '''
     )
     parser.add_argument('-t', '--target', required=True, help='Target host IP or hostname')
     parser.add_argument('-u', '--username', default='', help='Username (default: null auth)')
-    parser.add_argument('-p', '--password', default='', help='Password (will prompt if username provided without password)')
+    parser.add_argument('-p', '--password', default='', help='Password')
     parser.add_argument('-d', '--domain', default='', help='Domain name')
+    parser.add_argument('-H', '--hash', default='', help='NTLM hash (format: [LM:]NT)')
+    parser.add_argument('-k', '--kerberos', action='store_true', help='Use Kerberos authentication')
     
     args = parser.parse_args()
     
@@ -488,26 +510,41 @@ Examples:
     password = args.password
     domain = args.domain
     host = args.target
+    nthash = args.hash
+    use_kerberos = args.kerberos
     
-    if user and not password:
+    if nthash and ':' in nthash:
+        nthash = nthash.split(':')[1]
+    
+    if user and not password and not nthash and not use_kerberos:
         password = getpass.getpass("[?] Password: ")
     
-    auth_desc = "null authentication" if not user else f"{domain + '\\' if domain else ''}{user}"
+    domain_prefix = f"{domain}\\" if domain else ""
+    
+    if use_kerberos:
+        auth_desc = f"Kerberos ({domain_prefix}{user})"
+    elif nthash:
+        auth_desc = f"NTLM hash ({domain_prefix}{user})"
+    elif user:
+        auth_desc = f"{domain_prefix}{user}"
+    else:
+        auth_desc = "null authentication"
+    
     print(f"[*] Connecting to {host} with {auth_desc}...")
     
-    shares = list_smb_shares(host, user, password, domain)
+    shares = list_smb_shares(host, user, password, domain, nthash, use_kerberos)
     
     if not shares:
         die("No accessible shares found")
     
     selected = select_shares(shares)
-    creds = create_cifs_creds(domain, user, password)
+    creds = create_cifs_creds(domain, user, password, nthash)
     
     mounted_shares = []
     
     try:
         for share in selected:
-            mnt = mount_cifs_share(host, share, creds)
+            mnt = mount_cifs_share(host, share, creds, use_kerberos)
             if mnt:
                 mounted_shares.append(mnt)
         
