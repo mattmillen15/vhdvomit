@@ -1,6 +1,7 @@
 # vhdvomit
 Tool to search SMB shares for VHD backup files, mount them, and dump locally stored credentials within. 
 
+## Usage:
 ```python
 sudo python3 vhdvomit.py --help                                
 usage: vhdvomit.py [-h] -t TARGET [-u USERNAME] [-p PASSWORD] [-d DOMAIN]
@@ -24,3 +25,13 @@ Examples:
     vhdvomit.py -t 192.168.1.10 -u administrator -p Password123 -d CORP
 
 ```
+___
+## Pre-Reqs
+```bash
+apt install -y cifs-utils qemu-utils ntfs-3g
+```
+```bash
+pipx install impacket
+```
+___
+
