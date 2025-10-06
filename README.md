@@ -34,4 +34,5 @@ sudo apt install -y cifs-utils qemu-utils ntfs-3g
 pipx install impacket
 ```
 ___
-
+## Limitations
+- Currently only supports password based authentication. This tool relies heavily on qemu-nbd for mounting the VHDX file system... which doesn't support PTH.
