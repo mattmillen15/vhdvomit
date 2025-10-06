@@ -36,3 +36,6 @@ pipx install impacket
 ___
 ## Limitations
 - Currently only supports password based authentication. This tool relies heavily on qemu-nbd for mounting the VHDX file system... which doesn't support PTH.
+___
+## Shout Out
+- This tool is just another stolen idea. Shout out to @ad0nis, especially since I am totally ripping off his tool name cause it's too fitting. 
