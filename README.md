@@ -28,7 +28,7 @@ Examples:
 ___
 ## Pre-Reqs
 ```bash
-apt install -y cifs-utils qemu-utils ntfs-3g
+sudo apt install -y cifs-utils qemu-utils ntfs-3g
 ```
 ```bash
 pipx install impacket
