@@ -8,8 +8,21 @@ ___
 ---
 ## Usage:
 ```python
-sudo python3 vhdvomit.py --help                                
-usage: vhdvomit.py [-h] -t TARGET [-u USERNAME] [-p PASSWORD] [-d DOMAIN]
+sudo python3 vhdvomit.py --help
+
+ ██▒   █▓ ██░ ██ ▓█████▄     ██▒   █▓ ▒█████   ███▄ ▄███▓ ██▓▄▄▄█████▓
+▓██░   █▒▓██░ ██▒▒██▀ ██▌   ▓██░   █▒▒██▒  ██▒▓██▒▀█▀ ██▒▓██▒▓  ██▒ ▓▒
+ ▓██  █▒░▒██▀▀██░░██   █▌    ▓██  █▒░▒██░  ██▒▓██    ▓██░▒██▒▒ ▓██░ ▒░
+  ▒██ █░░░▓█ ░██ ░▓█▄   ▌     ▒██ █░░▒██   ██░▒██    ▒██ ░██░░ ▓██▓ ░
+   ▒▀█░  ░▓█▒░██▓░▒████▓       ▒▀█░  ░ ████▓▒░▒██▒   ░██▒░██░  ▒██▒ ░
+   ░ ▐░   ▒ ░░▒░▒ ▒▒▓  ▒       ░ ▐░  ░ ▒░▒░▒░ ░ ▒░   ░  ░░▓    ▒ ░░
+   ░ ░░   ▒ ░▒░ ░ ░ ▒  ▒       ░ ░░    ░ ▒ ▒░ ░  ░      ░ ▒ ░    ░
+     ░░   ░  ░░ ░ ░ ░  ░         ░░  ░ ░ ░ ▒  ░      ░    ▒ ░  ░
+      ░   ░  ░  ░   ░             ░      ░ ░         ░    ░
+     ░            ░              ░
+        Mount SMB shares, extract VHD/VHDX backups, dump credentials
+
+usage: vhdvomit.py [-h] -t TARGET [-u USERNAME] [-p PASSWORD] [-d DOMAIN] [--path PATH]
 
 Mount SMB shares, find VHD/VHDX backups, extract credentials
 
@@ -19,16 +32,19 @@ options:
   -u, --username USERNAME
                         Username (default: null auth)
   -p, --password PASSWORD
-                        Password (will prompt if username provided without password)
+                        Password
   -d, --domain DOMAIN   Domain name
+  --path PATH           Specific path to scan (e.g., "D$/Backups/VMs")
 
 Examples:
   Null authentication:
     vhdvomit.py -t 192.168.1.10
-  
-  With credentials:
+
+  With password:
     vhdvomit.py -t 192.168.1.10 -u administrator -p Password123 -d CORP
 
+  Specific path:
+    vhdvomit.py -t 192.168.1.10 -u admin -p pass --path "D$/Backups/VMs"
 ```
 ___
 ## Pre-Reqs
