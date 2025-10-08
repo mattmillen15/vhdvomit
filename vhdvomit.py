@@ -22,7 +22,7 @@ BANNER = r"""
      ░░   ░  ░░ ░ ░ ░  ░         ░░  ░ ░ ░ ▒  ░      ░    ▒ ░  ░      
       ░   ░  ░  ░   ░             ░      ░ ░         ░    ░           
      ░            ░              ░                                     
-        Mount SMB shares, extract VHD/VHDX backups, dump credentials
+        Mount SMB shares, extract VHD/VHDX/VMDK backups, dump credentials
 """
 
 try:
@@ -81,8 +81,9 @@ def list_smb_shares(host, user, password, domain):
                 except:
                     continue
             
-            admin_shares = ('IPC$', 'ADMIN$')
-            if not name or name.upper() in admin_shares:
+            if not name:
+                continue
+            if name.upper() == 'IPC$' or name.upper() == 'ADMIN$':
                 continue
             
             try:
@@ -194,7 +195,7 @@ def scan_directory_for_vhdx(directory):
             
             for filename in files:
                 file_count += 1
-                if filename.lower().endswith(('.vhdx', '.vhd')):
+                if filename.lower().endswith(('.vhdx', '.vhd', '.vmdk')):
                     filepath = os.path.join(root, filename)
                     try:
                         size = get_file_size_gb(filepath)
@@ -211,7 +212,7 @@ def scan_directory_for_vhdx(directory):
     return found
 
 def find_vhdx_files(paths, max_workers=10):
-    print(f"[*] Scanning for VHD/VHDX files...")
+    print(f"[*] Scanning for VHD/VHDX/VMDK files...")
     
     vhdx_files = []
     all_dirs = []
@@ -238,7 +239,7 @@ def find_vhdx_files(paths, max_workers=10):
             except Exception as e:
                 print(f"[!] Thread error: {e}")
     
-    print(f"[*] Scan complete. Found {len(vhdx_files)} VHD/VHDX files total")
+    print(f"[*] Scan complete. Found {len(vhdx_files)} virtual disk files total")
     
     return vhdx_files
 
@@ -246,7 +247,7 @@ def select_vhdx(vhdx_list):
     if not vhdx_list:
         return []
     
-    print("\n[*] VHD/VHDX files found:")
+    print("\n[*] Virtual disk files found:")
     for i, vhdx in enumerate(vhdx_list, 1):
         size = get_file_size_gb(vhdx)
         print(f"  [{i}] {Path(vhdx).name} ({size})")
@@ -254,7 +255,7 @@ def select_vhdx(vhdx_list):
     print("  [n] None")
     
     while True:
-        choice = input("\n[?] Select VHD/VHDX files (1,2,3 or 'a'/'n'): ").lower()
+        choice = input("\n[?] Select files (1,2,3 or 'a'/'n'): ").lower()
         if choice in ('n', 'none'):
             return []
         if choice in ('a', 'all'):
@@ -299,7 +300,13 @@ def find_free_nbd():
 def mount_vhdx_image(vhdx_path):
     vhdx_name = Path(vhdx_path).stem
     ext = Path(vhdx_path).suffix.lower()
-    fmt = 'vhd' if ext == '.vhd' else 'vhdx'
+    
+    if ext == '.vmdk':
+        fmt = 'vmdk'
+    elif ext == '.vhd':
+        fmt = 'vhd'
+    else:
+        fmt = 'vhdx'
     
     print(f"[*] Processing: {Path(vhdx_path).name}")
     
@@ -515,7 +522,7 @@ def main():
     check_deps()
     
     parser = argparse.ArgumentParser(
-        description='Mount SMB shares, find VHD/VHDX backups, extract credentials',
+        description='Mount SMB shares, find VHD/VHDX/VMDK backups, extract credentials',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
@@ -566,7 +573,6 @@ Examples:
         
         available_share_names = [s[0] for s in shares]
         
-        admin_shares = ('IPC$', 'ADMIN$')
         if share_with_dollar not in available_share_names and share_name not in available_share_names:
             die(f"Specified share '{share_name}' not found in available shares")
         
@@ -601,7 +607,7 @@ Examples:
         vhdx_files = find_vhdx_files(scan_paths, max_workers=10)
         
         if not vhdx_files:
-            print("[!] No VHD/VHDX files found")
+            print("[!] No VHD/VHDX/VMDK files found")
             return
         
         selected_vhdx = select_vhdx(vhdx_files)
